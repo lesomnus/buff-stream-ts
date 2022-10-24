@@ -1,0 +1,14 @@
+{
+	"name": "byte-stream-ts",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	"settings": {
+		"cSpell.diagnosticLevel": "Hint"
+	},
+	"extensions": [
+		"orta.vscode-jest",
+		"dbaeumer.vscode-eslint",
+		"streetsidesoftware.code-spell-checker"
+	]
+}
