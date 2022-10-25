@@ -1,11 +1,11 @@
-import { Buffer } from './buffer'
+import { Buffer } from './types'
 
 interface Window {
 	offset: number
 	length: number
 }
 
-export class CircularBuffer {
+export class CircularBuffer implements Buffer {
 	constructor(capacity: number) {
 		this._buffer = new ArrayBuffer(capacity)
 		this._window = { offset: 0, length: 0 }
@@ -19,17 +19,17 @@ export class CircularBuffer {
 		return this._window.length
 	}
 
-	read(data: Int8Array): number {
+	readSync(data: Uint8Array): number {
 		const len = Math.min(this._window.length, data.byteLength)
 			
 		const isFragmented = (this._window.offset + len) > this.capacity
 		if(isFragmented) {
 			const partialLen = this.capacity - this._window.offset
 
-			data.set(new Int8Array(this._buffer, this._window.offset, partialLen))
-			data.set(new Int8Array(this._buffer, 0, len - partialLen), partialLen)
+			data.set(new Uint8Array(this._buffer, this._window.offset, partialLen))
+			data.set(new Uint8Array(this._buffer, 0, len - partialLen), partialLen)
 		} else {
-			data.set(new Int8Array(this._buffer, this._window.offset, len))
+			data.set(new Uint8Array(this._buffer, this._window.offset, len))
 		}
 			
 		this._window.offset = (this._window.offset + len) % this.capacity
@@ -37,9 +37,9 @@ export class CircularBuffer {
 		return len
 	}
 
-	write(data: Int8Array): number {
+	writeSync(data: Uint8Array): number {
 		if(data.length >= this.capacity) {
-			new Int8Array(this._buffer).set(data.subarray(data.length - this._buffer.byteLength))
+			new Uint8Array(this._buffer).set(data.subarray(data.length - this._buffer.byteLength))
 			this._window = { offset: 0, length: this.capacity }
 
 			return data.length
@@ -53,10 +53,10 @@ export class CircularBuffer {
 		if(needFragment) {
 			const partialLen = this.capacity - beg
 
-			new Int8Array(this._buffer).set(data.subarray(0, partialLen), beg)
-			new Int8Array(this._buffer).set(data.subarray(partialLen))
+			new Uint8Array(this._buffer).set(data.subarray(0, partialLen), beg)
+			new Uint8Array(this._buffer).set(data.subarray(partialLen))
 		} else {
-			new Int8Array(this._buffer).set(data, beg)
+			new Uint8Array(this._buffer).set(data, beg)
 		}
 
 		this._window.length += data.length
@@ -78,12 +78,12 @@ export class CircularBuffer {
 
 
 export class StrictCircularBuffer extends CircularBuffer {
-	write(data: Int8Array): number {
+	writeSync(data: Uint8Array): number {
 		const space = this.capacity - this._window.length
 		if(space === 0) {
 			return 0
 		} else if(space < data.byteLength) {
-			return this.write(data.subarray(0, space))
+			return this.writeSync(data.subarray(0, space))
 		}
 		
 		const offsetNext = this._window.offset + this._window.length
@@ -94,10 +94,10 @@ export class StrictCircularBuffer extends CircularBuffer {
 		if(needFragment) {
 			const partialLen = this.capacity - beg
 
-			new Int8Array(this._buffer).set(data.subarray(0, partialLen), beg)
-			new Int8Array(this._buffer).set(data.subarray(partialLen))
+			new Uint8Array(this._buffer).set(data.subarray(0, partialLen), beg)
+			new Uint8Array(this._buffer).set(data.subarray(partialLen))
 		} else {
-			new Int8Array(this._buffer).set(data, beg)
+			new Uint8Array(this._buffer).set(data, beg)
 		}
 
 		this._window.length += data.length

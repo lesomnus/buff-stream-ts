@@ -1,17 +1,5 @@
+import { Reader, Writer, Buffer } from './types'
 import { ClosedError } from './errors'
-import { Buffer } from './buffer'
-
-export interface Reader {
-	tryRead(dst: Int8Array): number
-
-	read(dst: Int8Array): Promise<number>
-}
-
-export interface Writer {
-	tryWrite(src: Int8Array): number
-
-	write(src: Int8Array): Promise<void>
-}
 
 interface WriteTaskResult {
 	cnt: number,
@@ -19,13 +7,13 @@ interface WriteTaskResult {
 }
 
 interface ReadTask {
-	abort(err: Error): void
-	write(src: Int8Array): number
+	abort(): void
+	write(src: Uint8Array): number
 }
 
 interface WriteTask {
-	abort(err: Error): void
-	read(dst: Int8Array): WriteTaskResult
+	abort(): void
+	read(dst: Uint8Array): WriteTaskResult
 	flush(): WriteTaskResult
 }
 
@@ -47,17 +35,19 @@ export class Stream implements Reader, Writer {
 
 		const tasks = [this.#readTask, ...this.#writeTasks]
 		for(const task of tasks) {
-			task?.abort(new ClosedError())
+			task?.abort()
 		}
 
 		this.#readTask = undefined
 		this.#writeTasks = []
 	}
 
-	tryRead(dst: Int8Array): number {
-		this.#throwIfClosed()
+	readSync(dst: Uint8Array): number|null {
+		if(this.isClosed) {
+			return null
+		}
 
-		let cntAll = this.#buffer.read(dst)
+		let cntAll = this.#buffer.readSync(dst)
 		dst = dst.subarray(cntAll)
 
 		let completed = 0
@@ -90,32 +80,29 @@ export class Stream implements Reader, Writer {
 		return cntAll
 	}
 
-	async read(dst: Int8Array): Promise<number> {
-		this.#throwIfClosed()
-
-		{
-			const cnt = this.tryRead(dst)
-			if(cnt > 0) {
-				return cnt
-			}
+	async read(dst: Uint8Array): Promise<number | null> {
+		const cnt = this.readSync(dst)
+		if(cnt !== 0) {
+			return cnt
 		}
 
-		return new Promise<number>((resolve, reject) => {
+		return ((cntSum: number) => new Promise<number|null>((resolve, reject) => {
 			this.#readTask = {
-				abort: (err: Error) => reject(err),
-				write: (src: Int8Array): number => {
+				abort: () => resolve(null),
+				write: (src: Uint8Array): number => {
 					const cnt = Math.min(dst.byteLength, src.byteLength)					
 					dst.set(src.subarray(0, cnt))
-
-					resolve(cnt)
+					
+					cntSum += cnt
+					resolve(cntSum)
 
 					return cnt
 				},
 			}
-		})
+		}))(cnt)
 	}
 
-	tryWrite(src: Int8Array): number {
+	writeSync(src: Uint8Array): number {
 		this.#throwIfClosed()
 
 		if(this.#readTask) {
@@ -127,46 +114,46 @@ export class Stream implements Reader, Writer {
 			}
 			
 			src = src.subarray(cnt)
-			return this.#buffer.write(src) + cnt
+			return this.#buffer.writeSync(src) + cnt
 		} else {
-			return this.#buffer.write(src)
+			return this.#buffer.writeSync(src)
 		}		
 	}
 
-	async write(src: Int8Array): Promise<void> {
-		this.#throwIfClosed()
-
-		{
-			const cnt = this.tryWrite(src)
-			if(cnt === src.byteLength) {
-				return
-			}
-
-			src = src.subarray(cnt)
+	async write(src: Uint8Array): Promise<number> {
+		let cntSum = this.writeSync(src)
+		if(cntSum === src.byteLength) {
+			return cntSum
 		}
 
-		return new Promise<void>((resolve, reject) => {
+		src = src.subarray(cntSum)
+
+		return new Promise<number>((resolve, reject) => {
 			this.#writeTasks.push({
-				abort: (err: Error) => reject(err),
-				read: (dst: Int8Array): WriteTaskResult => {
+				abort: () => reject(new ClosedError()),
+				read: (dst: Uint8Array): WriteTaskResult => {
 					const cnt = Math.min(dst.byteLength, src.byteLength)
 					dst.set(src.subarray(0, cnt))
 					src = src.subarray(cnt)
 
+					cntSum += cnt
+
 					const done = dst.byteLength >= src.byteLength
 					if(done) {
-						resolve()
+						resolve(cntSum)
 					}
 
 					return { cnt, done }
 				},
 				flush: (): WriteTaskResult => {
-					const cnt = this.#buffer.write(src)
+					const cnt = this.#buffer.writeSync(src)
 					src = src.subarray(cnt)
+
+					cntSum += cnt
 
 					const done = src.byteLength === 0
 					if(done) {
-						resolve()
+						resolve(cntSum)
 					}
 
 					return { cnt, done }
